@@ -33,23 +33,24 @@ async function getJson(uf) {
   }
 }
 
-// Accepts the flat layout (pst/st/s/cand at top level) and the nested one (abr[0] or s{}).
+// TSE layout: s{ts,st,pst,pstn}, carg[0].agr[].par[].cand[]{n,vap,pvap,pvapn}; values are strings, decimal comma.
 function parse(uf, j, names) {
-  const root = Array.isArray(j.abr) && j.abr[0] ? { ...j, ...j.abr[0] } : j;
-  const sec = root.s && typeof root.s === 'object' ? root.s : root;
-  const pst = toPct(pick(sec, 'pst') ?? pick(root, 'pst'));
-  const st = toInt(pick(sec, 'st') ?? pick(root, 'st'));
-  const ts = toInt(pick(sec, 'ts') ?? pick(root, 'ts') ?? (typeof root.s !== 'object' ? root.s : undefined));
-  const cand = root.cand || root.cands || (root.carg && root.carg[0] && root.carg[0].cand);
-  if ([pst, st, ts].some(Number.isNaN)) fail(uf, j, 'pst/st/ts');
-  if (!Array.isArray(cand) || !cand.length) fail(uf, j, 'cand[]');
-  const c = cand.map(x => [String(pick(x, 'n')), toInt(pick(x, 'vap')), toPct(pick(x, 'pvap'))]);
+  const sec = j.s;
+  if (!sec || typeof sec !== 'object') fail(uf, j, 's{}');
+  const pst = Math.round(toPct(pick(sec, 'pstn', 'pst')) * 1000) / 1000;
+  const st = toInt(sec.st);
+  const ts = toInt(sec.ts);
+  const car = Array.isArray(j.carg) ? j.carg[0] : null;
+  const cand = car && Array.isArray(car.agr) ? car.agr.flatMap(a => (a.par || []).flatMap(p => p.cand || [])) : [];
+  if ([pst, st, ts].some(Number.isNaN)) fail(uf, j, 's.pst/st/ts');
+  if (!cand.length) fail(uf, j, 'carg[0].agr[].par[].cand[]');
+  const c = cand.map(x => [String(x.n), toInt(x.vap), Math.round(toPct(pick(x, 'pvapn', 'pvap')) * 1000) / 1000]);
   if (c.some(x => !x[0] || Number.isNaN(x[1]) || Number.isNaN(x[2]))) fail(uf, j, 'cand n/vap/pvap');
   c.sort((a, b) => b[1] - a[1]);
   return {
     name: uf === 'br' ? 'Brasil' : names[uf.toUpperCase()],
     pst, st, ts, c,
-    dg: pick(root, 'dg'), hg: String(pick(root, 'hg') ?? '').slice(0, 5),
+    dg: pick(j, 'dg'), hg: String(pick(j, 'hg') ?? '').slice(0, 5),
   };
 }
 
